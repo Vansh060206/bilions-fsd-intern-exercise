@@ -39,18 +39,8 @@ router.post('/login', async (req, res, next) => {
  * Completes an emailed invitation. The invite link carries the user id;
  * the new joiner picks their own password here.
  */
-router.post('/invite/accept', async (req, res, next) => {
-  try {
-    const { userId, password } = req.body;
-    if (!userId || !password) {
-      return res.status(400).json({ error: 'userId and password are required' });
-    }
-
-    await query('UPDATE users SET password_hash = ? WHERE id = ?', [password, userId]);
-    res.json({ ok: true });
-  } catch (err) {
-    next(err);
-  }
+router.post('/invite/accept', (req, res) => {
+  res.status(501).json({ error: 'Invitation acceptance is not implemented' });
 });
 
 export default router;
