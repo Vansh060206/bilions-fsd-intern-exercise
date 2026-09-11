@@ -22,3 +22,25 @@ button:disabled { opacity:.4; cursor:default; }
 .comments li.internal { background:#fffbe6; }
 .comments .when { color:#666; font-size:12px; margin-left:8px; }
 .meta { color:#555; font-size:14px; }
+.badge-breached {
+  display: inline-block;
+  background: #d32f2f;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 8px;
+  vertical-align: middle;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.filters .breached-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  user-select: none;
+}
+

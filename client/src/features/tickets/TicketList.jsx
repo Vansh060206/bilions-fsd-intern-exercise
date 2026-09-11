@@ -16,11 +16,15 @@ export default function TicketList() {
   const [status, setStatus] = useState('');
   const [priority, setPriority] = useState('');
   const [sortBy, setSortBy] = useState('created_at');
+  const [breachedOnly, setBreachedOnly] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     setLoading(true);
     const params = new URLSearchParams({ page, search, status, priority, sortBy, order: 'desc' });
+    if (breachedOnly) {
+      params.set('breached', 'true');
+    }
     api(`/tickets?${params.toString()}`)
       .then((data) => {
         setRows(data.rows);
@@ -28,7 +32,7 @@ export default function TicketList() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [page]);
+  }, [page, breachedOnly]);
 
   async function handleDelete(id) {
     await api(`/tickets/${id}`, { method: 'DELETE' });
@@ -63,6 +67,17 @@ export default function TicketList() {
           <option value="priority">Priority</option>
           <option value="status">Status</option>
         </select>
+        <label className="breached-filter">
+          <input
+            type="checkbox"
+            checked={breachedOnly}
+            onChange={(e) => {
+              setBreachedOnly(e.target.checked);
+              setPage(1);
+            }}
+          />
+          Breached only
+        </label>
       </div>
 
       {loading && <p>Loading…</p>}
@@ -78,7 +93,10 @@ export default function TicketList() {
           {rows.map((t, i) => (
             <tr key={i}>
               <td>{t.id}</td>
-              <td><Link to={`/tickets/${t.id}`}>{t.subject}</Link></td>
+              <td>
+                <Link to={`/tickets/${t.id}`}>{t.subject}</Link>
+                {Boolean(t.is_breached) && <span className="badge-breached">SLA Breached</span>}
+              </td>
               <td>{t.status}</td>
               <td>{t.priority}</td>
               <td>{t.assignee_name || '—'}</td>
