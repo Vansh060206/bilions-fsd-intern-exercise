@@ -2,6 +2,18 @@ import { query } from '../db/pool.js';
 
 const PAGE_SIZE = 20;
 
+const SORT_COLUMNS = Object.assign(Object.create(null), {
+  created_at: 't.created_at',
+  updated_at: 't.updated_at',
+  priority: 't.priority',
+  status: 't.status',
+});
+
+const SORT_DIRECTIONS = Object.assign(Object.create(null), {
+  asc: 'ASC',
+  desc: 'DESC',
+});
+
 /**
  * Paginated ticket list for the current organisation.
  *
@@ -28,6 +40,12 @@ export async function listTickets({ orgId, page = 1, search = '', status, priori
   const whereSql = where.join(' AND ');
   const offset = page * PAGE_SIZE;
 
+  const cleanSort = typeof sortBy === 'string' ? sortBy.trim() : '';
+  const cleanOrder = typeof order === 'string' ? order.trim().toLowerCase() : '';
+
+  const sortColumn = SORT_COLUMNS[cleanSort] || SORT_COLUMNS.created_at;
+  const sortDirection = SORT_DIRECTIONS[cleanOrder] || SORT_DIRECTIONS.desc;
+
   const rows = await query(
     `SELECT t.id, t.subject, t.status, t.priority, t.created_at, t.updated_at,
             t.assignee_id, u.name AS assignee_name, r.name AS requester_name
@@ -35,7 +53,7 @@ export async function listTickets({ orgId, page = 1, search = '', status, priori
        LEFT JOIN users u ON u.id = t.assignee_id
        JOIN users r ON r.id = t.requester_id
       WHERE ${whereSql}
-      ORDER BY t.${sortBy} ${order}
+      ORDER BY ${sortColumn} ${sortDirection}
       LIMIT ? OFFSET ?`,
     [...params, PAGE_SIZE, offset]
   );
