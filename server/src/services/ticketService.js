@@ -14,13 +14,60 @@ const SORT_DIRECTIONS = Object.assign(Object.create(null), {
   desc: 'DESC',
 });
 
+const SLA_JOIN = `
+  LEFT JOIN (
+    SELECT c.ticket_id, MIN(c.created_at) AS first_response_at
+      FROM comments c
+      JOIN users u ON u.id = c.author_id
+     WHERE c.is_internal = 0 AND u.role IN ('agent', 'admin')
+     GROUP BY c.ticket_id
+  ) resp ON resp.ticket_id = t.id
+`;
+
+const SLA_BREACHED_CONDITION = `(
+  CASE
+    WHEN resp.first_response_at IS NOT NULL THEN
+      resp.first_response_at > DATE_ADD(t.created_at, INTERVAL (CASE t.priority WHEN 'P1' THEN 4 WHEN 'P2' THEN 24 ELSE 72 END) HOUR)
+    ELSE
+      UTC_TIMESTAMP() > DATE_ADD(t.created_at, INTERVAL (CASE t.priority WHEN 'P1' THEN 4 WHEN 'P2' THEN 24 ELSE 72 END) HOUR)
+  END
+)`;
+
+const SLA_SELECT_FIELDS = `
+  (CASE t.priority WHEN 'P1' THEN 4 WHEN 'P2' THEN 24 ELSE 72 END) AS sla_target_hours,
+  DATE_ADD(t.created_at, INTERVAL (CASE t.priority WHEN 'P1' THEN 4 WHEN 'P2' THEN 24 ELSE 72 END) HOUR) AS sla_deadline,
+  resp.first_response_at,
+  ${SLA_BREACHED_CONDITION} AS is_breached,
+  (CASE
+    WHEN resp.first_response_at IS NOT NULL THEN
+      CASE
+        WHEN resp.first_response_at <= DATE_ADD(t.created_at, INTERVAL (CASE t.priority WHEN 'P1' THEN 4 WHEN 'P2' THEN 24 ELSE 72 END) HOUR) THEN 'met'
+        ELSE 'breached'
+      END
+    ELSE
+      CASE
+        WHEN UTC_TIMESTAMP() > DATE_ADD(t.created_at, INTERVAL (CASE t.priority WHEN 'P1' THEN 4 WHEN 'P2' THEN 24 ELSE 72 END) HOUR) THEN 'breached'
+        ELSE 'pending'
+      END
+  END) AS sla_status
+`;
+
 /**
  * Paginated ticket list for the current organisation.
  *
  * Supports free-text search on subject, filtering by status and priority,
  * and sorting by any column the UI exposes in its dropdown.
  */
-export async function listTickets({ orgId, page = 1, search = '', status, priority, sortBy = 'created_at', order = 'desc' }) {
+export async function listTickets({
+  orgId,
+  page = 1,
+  search = '',
+  status,
+  priority,
+  sortBy = 'created_at',
+  order = 'desc',
+  breached = false,
+}) {
   const where = ['t.org_id = ?'];
   const params = [orgId];
 
@@ -36,6 +83,9 @@ export async function listTickets({ orgId, page = 1, search = '', status, priori
     where.push('t.priority = ?');
     params.push(priority);
   }
+  if (breached) {
+    where.push(SLA_BREACHED_CONDITION);
+  }
 
   const whereSql = where.join(' AND ');
   const offset = page * PAGE_SIZE;
@@ -48,15 +98,21 @@ export async function listTickets({ orgId, page = 1, search = '', status, priori
 
   const rows = await query(
     `SELECT t.id, t.subject, t.status, t.priority, t.created_at, t.updated_at,
-            t.assignee_id, u.name AS assignee_name, r.name AS requester_name
+            t.assignee_id, u.name AS assignee_name, r.name AS requester_name,
+            ${SLA_SELECT_FIELDS}
        FROM tickets t
        LEFT JOIN users u ON u.id = t.assignee_id
        JOIN users r ON r.id = t.requester_id
+       ${SLA_JOIN}
       WHERE ${whereSql}
       ORDER BY ${sortColumn} ${sortDirection}
       LIMIT ? OFFSET ?`,
     [...params, PAGE_SIZE, offset]
   );
+
+  for (const row of rows) {
+    row.is_breached = Boolean(row.is_breached);
+  }
 
   // Attach the comment count each row needs for the list badge.
   for (const row of rows) {
@@ -65,7 +121,10 @@ export async function listTickets({ orgId, page = 1, search = '', status, priori
   }
 
   const [{ total }] = await query(
-    `SELECT COUNT(*) AS total FROM tickets t WHERE ${whereSql}`,
+    `SELECT COUNT(*) AS total
+       FROM tickets t
+       ${SLA_JOIN}
+      WHERE ${whereSql}`,
     params
   );
 
@@ -74,14 +133,18 @@ export async function listTickets({ orgId, page = 1, search = '', status, priori
 
 export async function getTicketById(id, orgId) {
   const rows = await query(
-    `SELECT t.*, u.name AS assignee_name, r.name AS requester_name, r.email AS requester_email
+    `SELECT t.*, u.name AS assignee_name, r.name AS requester_name, r.email AS requester_email,
+            ${SLA_SELECT_FIELDS}
        FROM tickets t
        LEFT JOIN users u ON u.id = t.assignee_id
        JOIN users r ON r.id = t.requester_id
+       ${SLA_JOIN}
       WHERE t.id = ? AND t.org_id = ?`,
     [id, orgId]
   );
-  return rows[0] || null;
+  if (!rows[0]) return null;
+  rows[0].is_breached = Boolean(rows[0].is_breached);
+  return rows[0];
 }
 
 export async function listComments(ticketId) {
@@ -96,10 +159,11 @@ export async function listComments(ticketId) {
 }
 
 export async function createTicket({ orgId, subject, body, priority, requesterId }) {
+  const createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
   const result = await query(
-    `INSERT INTO tickets (org_id, subject, body, priority, requester_id)
-     VALUES (?, ?, ?, ?, ?)`,
-    [orgId, subject, body, priority, requesterId]
+    `INSERT INTO tickets (org_id, subject, body, priority, requester_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [orgId, subject, body, priority, requesterId, createdAt, createdAt]
   );
   return getTicketById(result.insertId, orgId);
 }
