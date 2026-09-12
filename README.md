@@ -27,8 +27,8 @@ docker compose up -d          # starts MySQL 8 on port 3306
 ```
 
 Not using Docker? Create a database called `helpdesk` and a user that can reach it,
-then edit `server/.env` to match. The compose file sets the server timezone to
-`+05:30`; match that if you want the same behaviour we see.
+then edit `server/.env` to match. The Docker environment uses `+05:30` for local runtime
+behaviour. SLA calculations treat SLA-relevant timestamps consistently as UTC.
 
 ### 2. API
 
@@ -77,18 +77,35 @@ not be able to see each other's tickets.
 | `agent`     | Everything a requester can, plus claim and answer any ticket    |
 | `admin`     | Everything an agent can, plus delete tickets                    |
 
+## SLA Breach Tracking (Part 2)
+
+Tickets compute and expose First Response Time (FRT) SLA metrics dynamically:
+
+* `sla_target_hours`: response window based on priority (P1 = 4h, P2 = 24h, P3 = 72h)
+* `sla_deadline`: target timestamp derived from `created_at`
+* `first_response_at`: timestamp of earliest public agent/admin comment (or `null`)
+* `is_breached`: boolean indicating if the ticket has missed its SLA window
+* `sla_status`: `'pending'`, `'met'`, or `'breached'`
+
+The API supports `GET /api/tickets?breached=true` to filter breached tickets across all statuses.
+
+The client provides:
+* Red `SLA Breached` badge on ticket list rows
+* Red `SLA Breached` badge on ticket detail header
+* A "Breached only" filter checkbox on the ticket list
+
 ## API
 
-| Method | Path                             | Notes                          |
-| ------ | -------------------------------- | ------------------------------ |
-| POST   | `/api/auth/login`                | Returns a JWT                  |
-| POST   | `/api/auth/invite/accept`        | New joiner sets their password |
-| GET    | `/api/tickets`                   | Paginated, 20 per page         |
-| GET    | `/api/tickets/:id`               | Ticket plus its comments       |
-| POST   | `/api/tickets`                   | Raise a ticket                 |
-| PATCH  | `/api/tickets/:id/assign`        | Claim a ticket                 |
-| DELETE | `/api/tickets/:id`               | Admin only                     |
-| POST   | `/api/tickets/:id/comments`      | Add a comment                  |
+| Method | Path                             | Notes                                              |
+| ------ | -------------------------------- | -------------------------------------------------- |
+| POST   | `/api/auth/login`                | Returns a JWT                                      |
+| POST   | `/api/auth/invite/accept`        | Disabled (returns 501)                             |
+| GET    | `/api/tickets`                   | Paginated, 20 per page (supports `?breached=true`) |
+| GET    | `/api/tickets/:id`               | Ticket plus its comments and SLA fields            |
+| POST   | `/api/tickets`                   | Raise a ticket                                     |
+| PATCH  | `/api/tickets/:id/assign`        | Claim a ticket (agent/admin only)                  |
+| DELETE | `/api/tickets/:id`               | Admin only                                         |
+| POST   | `/api/tickets/:id/comments`      | Add a comment                                      |
 
 ## Layout
 
@@ -107,5 +124,4 @@ client/src/features/auth/         Login
 
 ## Known state
 
-This codebase was written quickly by a previous intern and merged without review.
-It works well enough to demo. Nobody has been through it properly since.
+The starter codebase was intentionally provided as an unreviewed application for the exercise. It works well enough to demo, serving as the baseline for the code review and SLA implementation.
